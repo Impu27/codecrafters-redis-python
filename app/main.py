@@ -4,7 +4,7 @@ import threading
 
 def handle_client(connection):
     #Handling all commands from a single client
-    while True:
+    while True():
         data = connection.recv(1024)  # read up to 1024 bytes
         if not data:  # client closed connection
             break
