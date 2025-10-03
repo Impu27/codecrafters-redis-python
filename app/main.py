@@ -4,7 +4,7 @@ import threading
 
 def handle_client(connection):
     #Handling all commands from a single client
-    while True():
+    while True:
         data = connection.recv(1024)  # read up to 1024 bytes
         if not data:  # client closed connection
             break
@@ -17,7 +17,7 @@ def main():
 
     
     server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
-    while True():
+    while True:
         connection, _ = server_socket.accept() #Accepting a new client
         #Start a new thread to handle this client
         client_thread = threading.Thread(target=handle_client, args=(connection,))
