@@ -17,6 +17,10 @@ def encode_bulk_string(s :str|None) -> bytes:
     return f"${len(s)}\r\n{s}\r\n".encode()
 
 
+def encode_integer(n :int) -> bytes:
+    return f":{n}\r\n".encode()
+
+
 def parse_resp(data: bytes):
     parts = data.split(b"\r\n")
     if not parts or parts[0][0:1] != b"*":
@@ -82,7 +86,18 @@ def handle_client(connection):
                 connection.sendall(encode_bulk_string(None))
             else:
                 connection.sendall(encode_bulk_string(value))
-            
+
+        elif cmd == "RPUSH" and len(command_parts) > 2:
+            key = command_parts[1]
+            value = command_parts[2]
+    
+            # If key doesn't exist, create a new list
+            if key not in store or not isinstance(store[key], list):
+                store[key] = []
+            store[key].append(value)
+            # Return the length of the list as RESP integer
+            connection.sendall(encode_integer(len(store[key])))
+
         else:
             connection.sendall(b"-ERR unknown command\r\n")
     connection.close()
