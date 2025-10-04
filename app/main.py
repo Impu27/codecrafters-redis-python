@@ -52,7 +52,7 @@ def handle_client(connection):
 
         if cmd == "PING":
             connection.sendall(b"+PONG\r\n")
-            
+
         elif cmd == "ECHO" and len(command_parts) > 1:
             arg = command_parts[1]
             connection.sendall(encode_bulk_string(arg))
@@ -67,7 +67,7 @@ def handle_client(connection):
                     expiry = time.time() + (ms / 1000.0)
                 except ValueError:
                     pass  # ignore invalid PX values
-            store[key] = value
+            store[key] = (value, expiry) # must be a tuple else we get an error
             connection.sendall(encode_simple_string("OK"))
 
         elif cmd == "GET":
