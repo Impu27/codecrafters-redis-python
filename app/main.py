@@ -1,8 +1,10 @@
 import socket  # noqa: F401
 import threading
+import time
 
 
-store = {} #Store in memory key-value pairs
+store = {} #Store in memory key-value pairs and expiry time if present else None 
+           #key->(value,expiry time or None)
 
 
 def encode_simple_string(s :str) -> bytes:
@@ -50,17 +52,37 @@ def handle_client(connection):
 
         if cmd == "PING":
             connection.sendall(b"+PONG\r\n")
+            
         elif cmd == "ECHO" and len(command_parts) > 1:
             arg = command_parts[1]
             connection.sendall(encode_bulk_string(arg))
+
         elif cmd == "SET":
             key,value = command_parts[1], command_parts[2]
+            expiry = None
+            #Handling optional PX argument
+            if len(command_parts) >= 5 and command_parts[3].upper() == "PX":
+                try:
+                    ms = int(command_parts[4])
+                    expiry = time.time() + (ms / 1000.0)
+                except ValueError:
+                    pass  # ignore invalid PX values
             store[key] = value
             connection.sendall(encode_simple_string("OK"))
+
         elif cmd == "GET":
             key = command_parts[1]
-            value = store.get(key)
-            connection.sendall(encode_bulk_string(value))
+            if key not in store:
+                connection.sendall(encode_bulk_string(None))
+                continue
+            value, expiry = store[key]
+            # Check if expired
+            if expiry is not None and time.time() > expiry:
+                del store[key]
+                connection.sendall(encode_bulk_string(None))
+            else:
+                connection.sendall(encode_bulk_string(value))
+            
         else:
             connection.sendall(b"-ERR unknown command\r\n")
     connection.close()
