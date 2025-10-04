@@ -2,6 +2,19 @@ import socket  # noqa: F401
 import threading
 
 
+store = {} #Store in memory key-value pairs
+
+
+def encode_simple_string(s :str) -> bytes:
+    return f"+{s}\r\n".encode()
+
+
+def encode_bulk_string(s :str|None) -> bytes:
+    if s is None:
+        return b"$-1\r\n"
+    return f"${len(s)}\r\n{s}\r\n".encode()
+
+
 def parse_resp(data: bytes):
     parts = data.split(b"\r\n")
     if not parts or parts[0][0:1] != b"*":
@@ -20,9 +33,6 @@ def parse_resp(data: bytes):
             idx += 1
     return items
 
-
-def encode_bulk_string(s :str) -> bytes:
-    return f"${len(s)}\r\n{s}\r\n".encode()
 
 
 def handle_client(connection):
@@ -43,6 +53,14 @@ def handle_client(connection):
         elif cmd == "ECHO" and len(command_parts) > 1:
             arg = command_parts[1]
             connection.sendall(encode_bulk_string(arg))
+        elif cmd == "SET":
+            key,value = command_parts[1], command_parts[2]
+            store[key] = value
+            connection.sendall(encode_simple_string("OK"))
+        elif cmd == "GET":
+            key = command_parts[1]
+            value = store.get(key)
+            connection.sendall(encode_bulk_string("value"))
         else:
             connection.sendall(b"-ERR unknown command\r\n")
     connection.close()
