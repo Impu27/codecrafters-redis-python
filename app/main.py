@@ -60,7 +60,7 @@ def handle_client(connection):
         elif cmd == "GET":
             key = command_parts[1]
             value = store.get(key)
-            connection.sendall(encode_bulk_string("value"))
+            connection.sendall(encode_bulk_string(value))
         else:
             connection.sendall(b"-ERR unknown command\r\n")
     connection.close()
