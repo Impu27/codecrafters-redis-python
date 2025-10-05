@@ -98,7 +98,7 @@ def handle_client(connection):
 
         elif cmd == "RPUSH" and len(command_parts) > 2:
             key = command_parts[1]
-            value = command_parts[2]
+            values = command_parts[2] # all values after the key
     
             # If key doesn't exist, create a new list
             if key not in store:
@@ -114,7 +114,7 @@ def handle_client(connection):
                 continue
 
             # Append the new value
-            store[key]["value"].extend(value)
+            store[key]["value"].extend(values)
 
             # Return the length of the list as RESP integer
             connection.sendall(encode_integer(len(store[key]["value"])))
