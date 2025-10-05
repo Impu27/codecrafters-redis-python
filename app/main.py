@@ -3,7 +3,7 @@ import threading
 import time
 
 
-store = {} #Store in memory key-value pairs and expiry time if present else None 
+store = {} #Dictionary to Store in memory key-value pairs and expiry time if present else None 
            #key->(value,expiry time or None)
            #Store list
 
@@ -20,6 +20,13 @@ def encode_bulk_string(s :str|None) -> bytes:
 
 def encode_integer(n :int) -> bytes:
     return f":{n}\r\n".encode()
+
+
+def encode_array(items: list[str]) -> bytes:
+    resp = f"{len(items)}\r\n".encode()
+    for item in items:
+        resp += encode_bulk_string(item)
+    return resp
 
 
 def parse_resp(data: bytes):
@@ -118,6 +125,37 @@ def handle_client(connection):
 
             # Return the length of the list as RESP integer
             connection.sendall(encode_integer(len(store[key]["value"])))
+
+        elif cmd == "LRANGE" and len(command_parts) == 4:
+            key = command_parts[1]
+            try:
+                start = int(command_parts[2])
+                stop = int(command_parts[3])
+            except ValueError:
+                connection.sendall(b"-ERR invalid indexes\r\n")
+                continue
+
+            # Key doesn't exist → empty array
+            if key not in store or store[key]["type"] != "list":
+                connection.sendall(b"*0\r\n")
+                continue
+
+            lst = store[key]["value"]
+            length = len(lst)
+
+            # Stop index > last element → clamp to last element
+            if stop >= length:
+                stop = length - 1
+            
+            # Start > stop → empty array
+            if start > stop or start >= length:
+                connection.sendall(b"*0\r\n")
+                continue
+
+            # Slice the list and return as RESP array
+            result = lst[start:stop + 1]
+            connection.sendall(encode_array(result))
+
 
         else:
             connection.sendall(b"-ERR unknown command\r\n")
