@@ -94,10 +94,10 @@ def handle_client(connection):
             # If key doesn't exist, create a new list
             if key not in store or not isinstance(store[key], list):
                 store[key] = []
-            # If key exists but is not a list → simple Redis would throw WRONGTYPE
-            # For now, we’ll just re-initialize as a list (or you can raise error)
-            if not isinstance(store[key], list):
-                store[key] = []
+            # If key exists but isn't a list → return error
+            elif not isinstance(store[key], list):
+                connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                continue
             # Append the new value
             store[key].append(value)
             # Return the length of the list as RESP integer
