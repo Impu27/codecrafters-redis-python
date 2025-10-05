@@ -23,7 +23,7 @@ def encode_integer(n :int) -> bytes:
 
 
 def encode_array(items: list[str]) -> bytes:
-    resp = f"{len(items)}\r\n".encode()
+    resp = f"*{len(items)}\r\n".encode()
     for item in items:
         resp += encode_bulk_string(item)
     return resp
