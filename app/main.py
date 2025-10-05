@@ -98,7 +98,7 @@ def handle_client(connection):
 
         elif cmd == "RPUSH" and len(command_parts) > 2:
             key = command_parts[1]
-            values = command_parts[2] # all values after the key
+            values = command_parts[2:] # all values after the key
     
             # If key doesn't exist, create a new list
             if key not in store:
