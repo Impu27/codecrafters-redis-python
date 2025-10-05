@@ -5,6 +5,7 @@ import time
 
 store = {} #Store in memory key-value pairs and expiry time if present else None 
            #key->(value,expiry time or None)
+           #Store list
 
 
 def encode_simple_string(s :str) -> bytes:
@@ -57,9 +58,11 @@ def handle_client(connection):
         if cmd == "PING":
             connection.sendall(b"+PONG\r\n")
 
+
         elif cmd == "ECHO" and len(command_parts) > 1:
             arg = command_parts[1]
             connection.sendall(encode_bulk_string(arg))
+
 
         elif cmd == "SET":
             key,value = command_parts[1], command_parts[2]
@@ -71,15 +74,20 @@ def handle_client(connection):
                     expiry = time.time() + (ms / 1000.0)
                 except ValueError:
                     pass  # ignore invalid PX values
-            store[key] = (value, expiry) # must be a tuple else we get an error
+            store[key] = {
+                        "type": "string",
+                        "value": value,
+                        "expiry": expiry
+                        }
             connection.sendall(encode_simple_string("OK"))
+
 
         elif cmd == "GET":
             key = command_parts[1]
-            if key not in store:
+            if key not in store or store[key]["type"] != "string":
                 connection.sendall(encode_bulk_string(None))
                 continue
-            value, expiry = store[key]
+            value, expiry = store[key]["value"], store[key]["expiry"]
             # Check if expired
             if expiry is not None and time.time() > expiry:
                 del store[key]
@@ -87,21 +95,29 @@ def handle_client(connection):
             else:
                 connection.sendall(encode_bulk_string(value))
 
+
         elif cmd == "RPUSH" and len(command_parts) > 2:
             key = command_parts[1]
             value = command_parts[2]
     
             # If key doesn't exist, create a new list
-            if key not in store or not isinstance(store[key], list):
-                store[key] = []
+            if key not in store:
+                store[key] = {
+                            "type": "list",
+                            "value": [],
+                            "expiry": None
+                            }
+
             # If key exists but isn't a list → return error
-            elif not isinstance(store[key], list):
+            elif store[key]["type"] != "list":
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
+
             # Append the new value
-            store[key].append(value)
+            store[key]["value"].extend(value)
+
             # Return the length of the list as RESP integer
-            connection.sendall(encode_integer(len(store[key])))
+            connection.sendall(encode_integer(len(store[key]["value"])))
 
         else:
             connection.sendall(b"-ERR unknown command\r\n")
