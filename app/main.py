@@ -143,7 +143,17 @@ def handle_client(connection):
             lst = store[key]["value"]
             length = len(lst)
 
-            # Stop index > last element → clamp to last element
+            #Convert negative index
+            if start < 0:
+                start = length + start
+            if stop < 0:
+                stop = length + stop
+
+            # Clamp indexes to valid range
+            if start < 0:
+                start = 0
+            if stop < 0:
+                stop = 0
             if stop >= length:
                 stop = length - 1
             
