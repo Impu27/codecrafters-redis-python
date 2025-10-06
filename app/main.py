@@ -166,6 +166,26 @@ def handle_client(connection):
             result = lst[start:stop + 1]
             connection.sendall(encode_array(result))
 
+        elif cmd == "LPUSH" and len(command_parts) >= 3:
+            key = command_parts[1]
+            values = command_parts[2:]
+
+            # If list doesn't exist, create it
+            if key not in store:
+                store[key] = {"type": "list", "value": []}
+            elif store[key]["type"] != "list":
+                connection.sendall(b"-ERR wrong type\r\n")
+                continue
+
+            lst = store[key]["value"]
+
+            # Prepend values in reverse order
+            for val in values:
+                lst.insert(0, val)
+
+            # Return new length of the list
+            connection.sendall(f":{len(lst)}\r\n".encode())
+
 
         else:
             connection.sendall(b"-ERR unknown command\r\n")
