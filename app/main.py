@@ -205,6 +205,31 @@ def handle_client(connection):
             connection.sendall(encode_integer(len(lst)))
 
 
+        elif cmd == "LPOP" and len(command_parts) == 2:
+            key = command_parts[1]
+
+            # If list doesn't exist
+            if key not in store:
+                connection.sendall(encode_bulk_string(None))
+                continue
+
+            # If key exists but isn't a list
+            if store[key]["type"] != "list":
+                connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                continue
+
+            lst = store[key]["value"]
+
+            # If list is empty
+            if not lst:
+                connection.sendall(encode_bulk_string(None))
+                continue
+
+            # Pop the first element
+            value = lst.pop(0)
+            connection.sendall(encode_bulk_string(value))
+
+
 
         else:
             connection.sendall(b"-ERR unknown command\r\n")
