@@ -210,8 +210,11 @@ def handle_client(connection):
 
             # If list doesn't exist
             if key not in store:
-                connection.sendall(encode_bulk_string(None))
-                continue
+                if len(command_parts) == 2:
+                    connection.sendall(encode_bulk_string(None))
+                else:
+                    connection.sendall(b"*0\r\n")  # empty array
+                    continue
 
             # If key exists but isn't a list
             if store[key]["type"] != "list":
@@ -220,15 +223,36 @@ def handle_client(connection):
 
             lst = store[key]["value"]
 
-            # If list is empty
-            if not lst:
-                connection.sendall(encode_bulk_string(None))
+            # If no count → single element mode
+            if len(command_parts) == 2:
+                if not lst:
+                    connection.sendall(encode_bulk_string(None))
+                else:
+                    value = lst.pop(0)
+                    connection.sendall(encode_bulk_string(value))
                 continue
 
-            # Pop the first element
-            value = lst.pop(0)
-            connection.sendall(encode_bulk_string(value))
+            # With count → multiple pop
+            try:
+                count = int(command_parts[2])
+            except ValueError:
+                connection.sendall(b"-ERR value is not an integer or out of range\r\n")
+                continue
 
+            if count <= 0:
+                connection.sendall(b"*0\r\n")  # nothing to pop
+                continue
+
+            # Pop min(count, len(lst)) elements
+            popped = []
+            for _ in range(min(count, len(lst))):
+                popped.append(lst.pop(0))
+
+            # Encode as RESP array
+            resp = f"*{len(popped)}\r\n"
+            for val in popped:
+                resp += f"${len(val)}\r\n{val}\r\n"
+            connection.sendall(resp.encode())
 
 
         else:
