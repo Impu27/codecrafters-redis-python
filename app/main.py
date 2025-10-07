@@ -187,6 +187,25 @@ def handle_client(connection):
             connection.sendall(f":{len(lst)}\r\n".encode())
 
 
+        elif cmd == "LLEN" and len(command_parts) == 2:
+            key = command_parts[1]
+
+            # If list doesn't exist
+            if key not in store:
+                connection.sendall(encode_integer(0))
+                continue
+
+            # If key exists but is not a list
+            if store[key]["type"] != "list":
+                connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                continue
+
+            # Return length of the list
+            lst = store[key]["value"]
+            connection.sendall(encode_integer(len(lst)))
+
+
+
         else:
             connection.sendall(b"-ERR unknown command\r\n")
     connection.close()
