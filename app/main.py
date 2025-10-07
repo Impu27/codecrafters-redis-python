@@ -205,7 +205,7 @@ def handle_client(connection):
             connection.sendall(encode_integer(len(lst)))
 
 
-        elif cmd == "LPOP" and len(command_parts) == 2:
+        elif cmd == "LPOP" and len(command_parts) >= 2:
             key = command_parts[1]
 
             # If list doesn't exist
