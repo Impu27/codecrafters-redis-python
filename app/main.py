@@ -297,36 +297,30 @@ def handle_client(connection):
 
         elif cmd == "BLPOP" and len(command_parts) == 3:
             key = command_parts[1]
-            timeout = int(command_parts[2])
+            timeout = float(command_parts[2])
 
-            # If list exists and not empty → immediate pop
+            #1 If list exists and not empty → immediate pop
             if key in store and store[key]["type"] == "list" and store[key]["value"]:
                 value = store[key]["value"].pop(0)
                 connection.sendall(encode_array([key, value]))
                 continue
 
-            # Otherwise, block (store the client in queue for this key)
-            # We'll create an Event so the handler thread can block without exiting.
+            #2 Otherwise, block with timeout
             wait_event = threading.Event()
             if key not in blocked_clients:
                 blocked_clients[key] = []
             blocked_clients[key].append((connection, wait_event))
 
-            # Since this stage uses timeout == 0 (block indefinitely), we wait forever until RPUSH/LPUSH wakes us.
-            # The RPUSH/LPUSH code will send the response and call wait_event.set() to wake this thread.
-            try:
-                wait_event.wait()  # blocks here, thread stays alive, socket remains open
-            except Exception:
-                # On any error, ensure we don't leave the event dangling; remove if present.
-                try:
-                    # Try to remove our (connection, wait_event) from blocked_clients if still present
-                    if key in blocked_clients:
-                        blocked_clients[key] = [t for t in blocked_clients[key] if t[1] is not wait_event]
-                except Exception:
-                    pass
-            # After being unblocked (RPUSH/LPUSH already sent the response),
-            # loop and continue handling any further commands from this client.
-            continue
+            #3 wait for push or timeout
+            waited = wait_event.wait(timeout) #return True if set(), False if timeout
+
+            #4 remove from blocked_clients if still present
+            if (connection,wait_event) in blocked_clients[key]:
+                blocked_clients[key].remove((connection, wait_event))
+
+            #5 if timeout occurred
+            if not waited:
+                connection.sendall(b"*-1\r\n") #null array
 
 
         else:
