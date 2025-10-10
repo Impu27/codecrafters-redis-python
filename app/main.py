@@ -128,23 +128,13 @@ def handle_client(connection):
             #Compute new length (this is what RPUSH must return)
             new_length = len(store[key]["value"])
 
-            # If there are blocked clients waiting
-            # Unblock waiting clients (FIFO). For each waiting client, pop one element.
+            # Unblock waiting clients (FIFO)
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
-                waiting_conn, wait_event = blocked_clients[key].pop(0)
+                waiting_conn, wait_event, placeholder = blocked_clients[key].pop(0)
                 popped = store[key]["value"].pop(0)
-                try:
-                    # Send the RESP array ["key", popped] to the waiting client
-                    waiting_conn.sendall(encode_array([key, popped]))
-                except Exception:
-                    # ignore send failures
-                    pass
-                finally:
-                    # Wake the handler thread so it can continue processing further commands.
-                    try:
-                        wait_event.set()
-                    except Exception:
-                        pass
+                placeholder["value"] = popped
+                wait_event.set()  # Wake blocked thread
+
 
             # Return the length of the list as RESP integer
             connection.sendall(encode_integer(new_length))
@@ -209,19 +199,12 @@ def handle_client(connection):
             # Compute new length (before unblocking)
             new_length = len(lst)
 
-            # If there are blocked clients waiting
+            # Unblock waiting clients (FIFO)
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
-                waiting_conn, wait_event = blocked_clients[key].pop(0)
+                waiting_conn, wait_event, placeholder = blocked_clients[key].pop(0)
                 popped = store[key]["value"].pop(0)
-                try:
-                    waiting_conn.sendall(encode_array([key, popped]))
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        wait_event.set()
-                    except Exception:
-                        pass
+                placeholder["value"] = popped
+                wait_event.set()  # Wake the blocked thread to send response
 
             # Return new length of the list
             connection.sendall(encode_integer(new_length))
@@ -307,6 +290,7 @@ def handle_client(connection):
 
             #2 Otherwise, block with timeout
             wait_event = threading.Event()
+            placeholder = {}
             if key not in blocked_clients:
                 blocked_clients[key] = []
             blocked_clients[key].append((connection, wait_event))
@@ -315,12 +299,14 @@ def handle_client(connection):
             waited = wait_event.wait(timeout) #return True if set(), False if timeout
 
             #4 remove from blocked_clients if still present
-            if (connection,wait_event) in blocked_clients[key]:
-                blocked_clients[key].remove((connection, wait_event))
+            if (connection,wait_event,placeholder) in blocked_clients.get(key, []):
+                blocked_clients[key].remove((connection, wait_event, placeholder))
 
             #5 if timeout occurred
-            if not waited:
-                connection.sendall(b"*-1\r\n") #null array
+            if waited:
+                connection.sendall(encode_array([key, placeholder["value"]]))
+            else:
+                connection.sendall(b"*-1\r\n")
 
 
         else:
