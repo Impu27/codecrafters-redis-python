@@ -124,6 +124,9 @@ def handle_client(connection):
 
             # Append the new value
             store[key]["value"].extend(values)
+            #calculate the length before popping for blocked clients
+            #Compute new length (this is what RPUSH must return)
+            new_length = len(store[key]["value"])
 
             # If there are blocked clients waiting
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
@@ -136,7 +139,7 @@ def handle_client(connection):
                     pass
 
             # Return the length of the list as RESP integer
-            connection.sendall(encode_integer(len(store[key]["value"])))
+            connection.sendall(encode_integer(new_length))
 
         elif cmd == "LRANGE" and len(command_parts) == 4:
             key = command_parts[1]
@@ -191,6 +194,13 @@ def handle_client(connection):
 
             lst = store[key]["value"]
 
+            # Prepend values in reverse order
+            for val in values:
+                lst.insert(0, val)
+
+            # Compute new length (before unblocking)
+            new_length = len(lst)
+
             # If there are blocked clients waiting
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
                 waiting_conn = blocked_clients[key].pop(0)  # FIFO order → first client
@@ -201,12 +211,8 @@ def handle_client(connection):
                 except:
                     pass
 
-            # Prepend values in reverse order
-            for val in values:
-                lst.insert(0, val)
-
             # Return new length of the list
-            connection.sendall(f":{len(lst)}\r\n".encode())
+            connection.sendall(encode_integer(new_length))
 
 
         elif cmd == "LLEN" and len(command_parts) == 2:
