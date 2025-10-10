@@ -131,7 +131,7 @@ def handle_client(connection):
                 popped = store[key]["value"].pop(0)  # pop one value for them
                 try:
                     waiting_conn.sendall(encode_array([key, popped]))
-                    waiting_conn.close()  # unblock and close
+                    # don’t close the connection!
                 except:
                     pass
 
@@ -193,11 +193,11 @@ def handle_client(connection):
 
             # If there are blocked clients waiting
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
-                waiting_conn = blocked_clients[key].pop(0)  # first waiting client
+                waiting_conn = blocked_clients[key].pop(0)  # FIFO order → first client
                 popped = store[key]["value"].pop(0)  # pop one value for them
                 try:
                     waiting_conn.sendall(encode_array([key, popped]))
-                    waiting_conn.close()  # unblock and close
+                    # don’t close the connection!
                 except:
                     pass
 
@@ -291,9 +291,9 @@ def handle_client(connection):
             if key not in blocked_clients:
                 blocked_clients[key] = []
                 blocked_clients[key].append(connection)
-            # Do NOT send anything yet (connection stays open)
-            # This thread will essentially stall here
-            return  # exit handle_client for this connection
+            # Don’t `return` here, or else the thread dies.
+            # Just break loop → thread idles but socket stays open.
+            break
 
 
         else:
