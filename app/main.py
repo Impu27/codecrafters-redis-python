@@ -129,14 +129,22 @@ def handle_client(connection):
             new_length = len(store[key]["value"])
 
             # If there are blocked clients waiting
+            # Unblock waiting clients (FIFO). For each waiting client, pop one element.
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
-                waiting_conn = blocked_clients[key].pop(0)  # first waiting client
-                popped = store[key]["value"].pop(0)  # pop one value for them
+                waiting_conn, wait_event = blocked_clients[key].pop(0)
+                popped = store[key]["value"].pop(0)
                 try:
+                    # Send the RESP array ["key", popped] to the waiting client
                     waiting_conn.sendall(encode_array([key, popped]))
-                    # don’t close the connection!
-                except:
+                except Exception:
+                    # ignore send failures
                     pass
+                finally:
+                    # Wake the handler thread so it can continue processing further commands.
+                    try:
+                        wait_event.set()
+                    except Exception:
+                        pass
 
             # Return the length of the list as RESP integer
             connection.sendall(encode_integer(new_length))
@@ -203,13 +211,17 @@ def handle_client(connection):
 
             # If there are blocked clients waiting
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
-                waiting_conn = blocked_clients[key].pop(0)  # FIFO order → first client
-                popped = store[key]["value"].pop(0)  # pop one value for them
+                waiting_conn, wait_event = blocked_clients[key].pop(0)
+                popped = store[key]["value"].pop(0)
                 try:
                     waiting_conn.sendall(encode_array([key, popped]))
-                    # don’t close the connection!
-                except:
+                except Exception:
                     pass
+                finally:
+                    try:
+                        wait_event.set()
+                    except Exception:
+                        pass
 
             # Return new length of the list
             connection.sendall(encode_integer(new_length))
@@ -294,12 +306,27 @@ def handle_client(connection):
                 continue
 
             # Otherwise, block (store the client in queue for this key)
+            # We'll create an Event so the handler thread can block without exiting.
+            wait_event = threading.Event()
             if key not in blocked_clients:
                 blocked_clients[key] = []
-                blocked_clients[key].append(connection)
-            # Don’t `return` here, or else the thread dies.
-            # Just break loop → thread idles but socket stays open.
-            break
+            blocked_clients[key].append((connection, wait_event))
+
+            # Since this stage uses timeout == 0 (block indefinitely), we wait forever until RPUSH/LPUSH wakes us.
+            # The RPUSH/LPUSH code will send the response and call wait_event.set() to wake this thread.
+            try:
+                wait_event.wait()  # blocks here, thread stays alive, socket remains open
+            except Exception:
+                # On any error, ensure we don't leave the event dangling; remove if present.
+                try:
+                    # Try to remove our (connection, wait_event) from blocked_clients if still present
+                    if key in blocked_clients:
+                        blocked_clients[key] = [t for t in blocked_clients[key] if t[1] is not wait_event]
+                except Exception:
+                    pass
+            # After being unblocked (RPUSH/LPUSH already sent the response),
+            # loop and continue handling any further commands from this client.
+            continue
 
 
         else:
