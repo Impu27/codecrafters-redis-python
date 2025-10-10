@@ -8,6 +8,8 @@ store = {} #Dictionary to Store in memory key-value pairs and expiry time if pre
            #Store list
 
 
+blocked_clients = {}
+
 def encode_simple_string(s :str) -> bytes:
     return f"+{s}\r\n".encode()
 
@@ -123,6 +125,16 @@ def handle_client(connection):
             # Append the new value
             store[key]["value"].extend(values)
 
+            # If there are blocked clients waiting
+            while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
+                waiting_conn = blocked_clients[key].pop(0)  # first waiting client
+                popped = store[key]["value"].pop(0)  # pop one value for them
+                try:
+                    waiting_conn.sendall(encode_array([key, popped]))
+                    waiting_conn.close()  # unblock and close
+                except:
+                    pass
+
             # Return the length of the list as RESP integer
             connection.sendall(encode_integer(len(store[key]["value"])))
 
@@ -178,6 +190,16 @@ def handle_client(connection):
                 continue
 
             lst = store[key]["value"]
+
+            # If there are blocked clients waiting
+            while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
+                waiting_conn = blocked_clients[key].pop(0)  # first waiting client
+                popped = store[key]["value"].pop(0)  # pop one value for them
+                try:
+                    waiting_conn.sendall(encode_array([key, popped]))
+                    waiting_conn.close()  # unblock and close
+                except:
+                    pass
 
             # Prepend values in reverse order
             for val in values:
@@ -253,6 +275,25 @@ def handle_client(connection):
             for val in popped:
                 resp += f"${len(val)}\r\n{val}\r\n"
             connection.sendall(resp.encode())
+
+
+        elif cmd == "BLPOP" and len(command_parts) == 3:
+            key = command_parts[1]
+            timeout = int(command_parts[2])
+
+            # If list exists and not empty → immediate pop
+            if key in store and store[key]["type"] == "list" and store[key]["value"]:
+                value = store[key]["value"].pop(0)
+                connection.sendall(encode_array([key, value]))
+                continue
+
+            # Otherwise, block (store the client in queue for this key)
+            if key not in blocked_clients:
+                blocked_clients[key] = []
+                blocked_clients[key].append(connection)
+            # Do NOT send anything yet (connection stays open)
+            # This thread will essentially stall here
+            return  # exit handle_client for this connection
 
 
         else:
