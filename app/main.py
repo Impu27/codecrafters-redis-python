@@ -106,38 +106,27 @@ def handle_client(connection):
 
 
         elif cmd == "RPUSH" and len(command_parts) > 2:
-            key = command_parts[1]
-            values = command_parts[2:] # all values after the key
-    
-            # If key doesn't exist, create a new list
+            key, values = command_parts[1], command_parts[2:]
             if key not in store:
-                store[key] = {
-                            "type": "list",
-                            "value": [],
-                            "expiry": None
-                            }
-
-            # If key exists but isn't a list → return error
+                store[key] = {"type": "list", "value": [], "expiry": None}
             elif store[key]["type"] != "list":
-                connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                connection.sendall(
+                    b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+                )
                 continue
 
-            # Append the new value
             store[key]["value"].extend(values)
-            #calculate the length before popping for blocked clients
-            #Compute new length (this is what RPUSH must return)
             new_length = len(store[key]["value"])
 
-            # Unblock waiting clients (FIFO)
+            # Unblock one waiting client (FIFO)
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
                 waiting_conn, wait_event, placeholder = blocked_clients[key].pop(0)
                 popped = store[key]["value"].pop(0)
                 placeholder["value"] = popped
-                wait_event.set()  # Wake blocked thread
+                wait_event.set()
 
-
-            # Return the length of the list as RESP integer
             connection.sendall(encode_integer(new_length))
+            
 
         elif cmd == "LRANGE" and len(command_parts) == 4:
             key = command_parts[1]
@@ -180,33 +169,25 @@ def handle_client(connection):
             connection.sendall(encode_array(result))
 
         elif cmd == "LPUSH" and len(command_parts) >= 3:
-            key = command_parts[1]
-            values = command_parts[2:]
-
-            # If list doesn't exist, create it
+            key, values = command_parts[1], command_parts[2:]
             if key not in store:
-                store[key] = {"type": "list", "value": []}
+                store[key] = {"type": "list", "value": [], "expiry": None}
             elif store[key]["type"] != "list":
                 connection.sendall(b"-ERR wrong type\r\n")
                 continue
 
             lst = store[key]["value"]
-
-            # Prepend values in reverse order
             for val in values:
                 lst.insert(0, val)
-
-            # Compute new length (before unblocking)
             new_length = len(lst)
 
-            # Unblock waiting clients (FIFO)
+            # Unblock one waiting client (FIFO)
             while key in blocked_clients and blocked_clients[key] and store[key]["value"]:
                 waiting_conn, wait_event, placeholder = blocked_clients[key].pop(0)
                 popped = store[key]["value"].pop(0)
                 placeholder["value"] = popped
-                wait_event.set()  # Wake the blocked thread to send response
+                wait_event.set()
 
-            # Return new length of the list
             connection.sendall(encode_integer(new_length))
 
 
@@ -282,31 +263,28 @@ def handle_client(connection):
             key = command_parts[1]
             timeout = float(command_parts[2])
 
-            #1 If list exists and not empty → immediate pop
+            # 1. Immediate pop if available
             if key in store and store[key]["type"] == "list" and store[key]["value"]:
                 value = store[key]["value"].pop(0)
                 connection.sendall(encode_array([key, value]))
                 continue
 
-            #2 Otherwise, block with timeout
+            # 2. Block with timeout
             wait_event = threading.Event()
             placeholder = {}
-            if key not in blocked_clients:
-                blocked_clients[key] = []
-            blocked_clients[key].append((connection, wait_event,placeholder))
+            blocked_clients.setdefault(key, []).append(
+                (connection, wait_event, placeholder)
+            )
 
-            #3 wait for push or timeout
-            waited = wait_event.wait(timeout) #return True if set(), False if timeout
+            waited = wait_event.wait(timeout)
 
-            #4 remove from blocked_clients if still present
-            if (connection,wait_event,placeholder) in blocked_clients.get(key, []):
+            # Remove from blocked list if still there
+            if (connection, wait_event, placeholder) in blocked_clients.get(key, []):
                 blocked_clients[key].remove((connection, wait_event, placeholder))
 
-            # 5. If timeout → return null array
             if not waited:
                 connection.sendall(b"*-1\r\n")
             else:
-            # Unblocked by RPUSH/LPUSH
                 value = placeholder["value"]
                 connection.sendall(encode_array([key, value]))
 
