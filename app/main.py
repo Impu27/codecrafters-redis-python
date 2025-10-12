@@ -293,7 +293,7 @@ def handle_client(connection):
             placeholder = {}
             if key not in blocked_clients:
                 blocked_clients[key] = []
-            blocked_clients[key].append((connection, wait_event))
+            blocked_clients[key].append((connection, wait_event,placeholder))
 
             #3 wait for push or timeout
             waited = wait_event.wait(timeout) #return True if set(), False if timeout
