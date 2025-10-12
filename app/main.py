@@ -302,11 +302,13 @@ def handle_client(connection):
             if (connection,wait_event,placeholder) in blocked_clients.get(key, []):
                 blocked_clients[key].remove((connection, wait_event, placeholder))
 
-            #5 if timeout occurred
-            if waited:
-                connection.sendall(encode_array([key, placeholder["value"]]))
-            else:
+            # 5. If timeout → return null array
+            if not waited:
                 connection.sendall(b"*-1\r\n")
+            else:
+            # Unblocked by RPUSH/LPUSH
+                value = placeholder["value"]
+                connection.sendall(encode_array([key, value]))
 
 
         else:
