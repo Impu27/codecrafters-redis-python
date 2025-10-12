@@ -126,7 +126,7 @@ def handle_client(connection):
                 wait_event.set()
 
             connection.sendall(encode_integer(new_length))
-            
+
 
         elif cmd == "LRANGE" and len(command_parts) == 4:
             key = command_parts[1]
@@ -272,21 +272,20 @@ def handle_client(connection):
             # 2. Block with timeout
             wait_event = threading.Event()
             placeholder = {}
-            blocked_clients.setdefault(key, []).append(
-                (connection, wait_event, placeholder)
-            )
+            blocked_clients.setdefault(key, []).append((connection, wait_event, placeholder))
 
             waited = wait_event.wait(timeout)
 
-            # Remove from blocked list if still there
-            if (connection, wait_event, placeholder) in blocked_clients.get(key, []):
-                blocked_clients[key].remove((connection, wait_event, placeholder))
-
             if not waited:
+                # Timeout -> remove from blocked list
+                if (connection, wait_event, placeholder) in blocked_clients.get(key, []):
+                    blocked_clients[key].remove((connection, wait_event, placeholder))
                 connection.sendall(b"*-1\r\n")
             else:
+                # Unblocked by RPUSH/LPUSH
                 value = placeholder["value"]
                 connection.sendall(encode_array([key, value]))
+
 
 
         else:
