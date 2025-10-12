@@ -269,15 +269,16 @@ def handle_client(connection):
                 connection.sendall(encode_array([key, value]))
                 continue
 
-            # 2. Block with timeout
+            # 2. Block with timeout (0 = infinite)
             wait_event = threading.Event()
             placeholder = {}
             blocked_clients.setdefault(key, []).append((connection, wait_event, placeholder))
 
-            waited = wait_event.wait(timeout)
+            wait_time = None if timeout == 0 else timeout
+            waited = wait_event.wait(wait_time)
 
             if not waited:
-                # Timeout -> remove from blocked list
+            # Timeout -> remove from blocked list
                 if (connection, wait_event, placeholder) in blocked_clients.get(key, []):
                     blocked_clients[key].remove((connection, wait_event, placeholder))
                 connection.sendall(b"*-1\r\n")
