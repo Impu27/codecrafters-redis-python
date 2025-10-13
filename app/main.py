@@ -31,6 +31,40 @@ def encode_array(items: list[str]) -> bytes:
     return resp
 
 
+def parse_stream_id(entry_id: str):
+    try:
+        ms_str, seq_str = entry_id.split("-", 1)
+        ms, seq = int(ms_str), int(seq_str)
+        return ms, seq
+    except Exception:
+        return None, None
+
+
+def is_valid_xadd_id(new_id: str, last_id: str | None):
+    ms, seq = parse_stream_id(new_id)
+    if ms is None or seq is None:
+        return False, "-ERR Invalid stream ID format\r\n"
+
+    # Rule 1: Cannot be 0-0
+    if ms == 0 and seq == 0:
+        return False, "-ERR The ID specified in XADD must be greater than 0-0\r\n"
+
+    # If stream empty → must be > 0-0
+    if last_id is None:
+        return True, None
+
+    last_ms, last_seq = parse_stream_id(last_id)
+    if last_ms is None or last_seq is None:
+        # This should never happen, but safe fallback
+        return False, "-ERR Corrupted stream state\r\n"
+
+    # Compare against last entry
+    if ms < last_ms or (ms == last_ms and seq <= last_seq):
+        return False, "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+
+    return True, None
+
+
 def parse_resp(data: bytes):
     parts = data.split(b"\r\n")
     if not parts or parts[0][0:1] != b"*":
@@ -303,6 +337,13 @@ def handle_client(connection):
                 store[key] = {"type" : "stream", "value" : []}
             elif store["type"] != "stream":
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                continue
+
+            # Validate ID
+            last_id = store[key]["value"][-1]["id"] if store[key]["value"] else None
+            valid, err = is_valid_xadd_id(entry_id, last_id)
+            if not valid:
+                connection.sendall((err or "-ERR unknown error\r\n").encode())
                 continue
 
             # Convert to dict
