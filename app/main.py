@@ -288,6 +288,36 @@ def handle_client(connection):
                 connection.sendall(encode_array([key, value]))
 
 
+        elif cmd == "XADD" and len(command_parts) >= 5:
+            key = command_parts[1]
+            entry_id = command_parts[2]
+            field_values = command_parts[3:]
+
+            # Validate field-value pairs
+            if len(field_values) % 2 != 0:
+                connection.sendall(b"-ERR wrong number of arguments for XADD\r\n")
+                continue
+
+            # Create stream if it doesn't exist
+            if key not in store:
+                store[key] = {"type" : "stream", "value" : []}
+            elif store["type"] != "stream":
+                connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+                continue
+
+            # Convert to dict
+            fields = {}
+            for i in range (0, len(field_values), 2):
+                fields[field_values[i]] = field_values[i+1]
+
+            # Append entry
+            entry = {"id": entry_id, "fields": fields}
+            store[key]["value"].append(entry)
+
+            # Return entry ID
+            connection.sendall(encode_bulk_string(entry_id))
+
+
         elif cmd == "TYPE" and len(command_parts) == 2:
             key = command_parts[1]
             if key not in store:
