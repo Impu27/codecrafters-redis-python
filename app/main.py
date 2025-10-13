@@ -335,7 +335,7 @@ def handle_client(connection):
             # Create stream if it doesn't exist
             if key not in store:
                 store[key] = {"type" : "stream", "value" : []}
-            elif store["type"] != "stream":
+            elif store[key]["type"] != "stream":
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
 
