@@ -288,6 +288,15 @@ def handle_client(connection):
                 connection.sendall(encode_array([key, value]))
 
 
+        elif cmd == "TYPE" and len(command_parts) == 2:
+            key = command_parts[1]
+            if key not in store:
+                connection.sendall(encode_simple_string("none"))
+            else:
+                connection.sendall(encode_simple_string(store[key]["type"]))
+        
+
+
 
         else:
             connection.sendall(b"-ERR unknown command\r\n")
