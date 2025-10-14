@@ -31,19 +31,21 @@ def encode_array(items: list[str]) -> bytes:
     return resp
 
 
-def parse_stream_id(entry_id: str):
+def parse_stream_id(entry_id: str) -> tuple[int, int] | None:
     try:
-        ms_str, seq_str = entry_id.split("-", 1)
-        ms, seq = int(ms_str), int(seq_str)
+        parts = entry_id.split("-")
+        ms = int(parts[0])
+        seq = int(parts[1]) if len(parts) > 1 else 0   # default seq = 0
         return ms, seq
-    except Exception:
-        return None, None
+    except ValueError:
+        return None
 
 
 def is_valid_xadd_id(new_id: str, last_id: str | None):
-    ms, seq = parse_stream_id(new_id)
-    if ms is None or seq is None:
+    parsed = parse_stream_id(new_id)
+    if parsed is None:
         return False, "-ERR Invalid stream ID format\r\n"
+    ms, seq = parsed
 
     # Rule 1: Cannot be 0-0
     if ms == 0 and seq == 0:
@@ -53,10 +55,11 @@ def is_valid_xadd_id(new_id: str, last_id: str | None):
     if last_id is None:
         return True, None
 
-    last_ms, last_seq = parse_stream_id(last_id)
-    if last_ms is None or last_seq is None:
+    parsed_last = parse_stream_id(last_id)
+    if parsed_last is None:
         # This should never happen, but safe fallback
         return False, "-ERR Corrupted stream state\r\n"
+    last_ms, last_seq = parsed_last
 
     # Compare against last entry
     if ms < last_ms or (ms == last_ms and seq <= last_seq):
@@ -334,12 +337,12 @@ def handle_client(connection):
 
             # Create stream if it doesn't exist
             if key not in store:
-                store[key] = {"type" : "stream", "value" : []}
+                store[key] = {"type": "stream", "value": []}
             elif store[key]["type"] != "stream":
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
 
-            # --- Handle auto-generate sequence number (<ms>-*) ---
+            # --- Case 1: Auto-generate sequence number (<ms>-*) ---
             if entry_id.endswith("-*"):
                 ms_str = entry_id.split("-")[0]
                 try:
@@ -348,17 +351,26 @@ def handle_client(connection):
                     connection.sendall(b"-ERR Invalid stream ID format\r\n")
                     continue
 
-            # Default seq
-            seq = 0 if ms != 0 else 1
+                # Default seq
+                seq = 0 if ms != 0 else 1
 
-            # Check last entry if same ms
-            if store[key]["value"]:
-                last_id = store[key]["value"][-1]["id"]
-                last_ms, last_seq = parse_stream_id(last_id)
-                if last_ms == ms:
-                    seq = (last_seq if last_seq is not None else -1) + 1
-
-            entry_id = f"{ms}-{seq}"
+                # If last entry has same ms, increment seq
+                if store[key]["value"]:
+                    last_id = store[key]["value"][-1]["id"]
+                    parsed_last = parse_stream_id(last_id)
+                    if parsed_last is not None:
+                        last_ms, last_seq = parsed_last
+                        if last_ms == ms:
+                            seq = last_seq + 1
+                # Build final entry ID
+                entry_id = f"{ms}-{seq}"
+            # --- Case 2: Explicit IDs (<ms>-<seq>) ---
+            else:
+                parsed = parse_stream_id(entry_id)
+                if parsed is None:
+                    connection.sendall(b"-ERR Invalid stream ID format\r\n")
+                    continue
+                ms, seq = parsed
 
             # Validate ID
             last_id = store[key]["value"][-1]["id"] if store[key]["value"] else None
@@ -369,8 +381,8 @@ def handle_client(connection):
 
             # Convert to dict
             fields = {}
-            for i in range (0, len(field_values), 2):
-                fields[field_values[i]] = field_values[i+1]
+            for i in range(0, len(field_values), 2):
+                fields[field_values[i]] = field_values[i + 1]
 
             # Append entry
             entry = {"id": entry_id, "fields": fields}
@@ -385,9 +397,7 @@ def handle_client(connection):
             if key not in store:
                 connection.sendall(encode_simple_string("none"))
             else:
-                connection.sendall(encode_simple_string(store[key]["type"]))
-        
-
+                connection.sendall(encode_simple_string(store[key]["type"]))        
 
 
         else:
