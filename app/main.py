@@ -339,6 +339,27 @@ def handle_client(connection):
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
 
+            # --- Handle auto-generate sequence number (<ms>-*) ---
+            if entry_id.endswith("-*"):
+                ms_str = entry_id.split("-")[0]
+                try:
+                    ms = int(ms_str)
+                except ValueError:
+                    connection.sendall(b"-ERR Invalid stream ID format\r\n")
+                    continue
+
+            # Default seq
+            seq = 0 if ms != 0 else 1
+
+            # Check last entry if same ms
+            if store[key]["value"]:
+                last_id = store[key]["value"][-1]["id"]
+                last_ms, last_seq = parse_stream_id(last_id)
+                if last_ms == ms:
+                    seq = (last_seq if last_seq is not None else -1) + 1
+
+            entry_id = f"{ms}-{seq}"
+
             # Validate ID
             last_id = store[key]["value"][-1]["id"] if store[key]["value"] else None
             valid, err = is_valid_xadd_id(entry_id, last_id)
