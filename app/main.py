@@ -105,11 +105,13 @@ def handle_client(connection):
             connection.sendall(b"+PONG\r\n")
 
 
+        #--------------------ECHO--------------------
         elif cmd == "ECHO" and len(command_parts) > 1:
             arg = command_parts[1]
             connection.sendall(encode_bulk_string(arg))
 
 
+        #--------------------SET--------------------
         elif cmd == "SET":
             key,value = command_parts[1], command_parts[2]
             expiry = None
@@ -128,6 +130,7 @@ def handle_client(connection):
             connection.sendall(encode_simple_string("OK"))
 
 
+        #--------------------GET--------------------
         elif cmd == "GET":
             key = command_parts[1]
             if key not in store or store[key]["type"] != "string":
@@ -142,6 +145,7 @@ def handle_client(connection):
                 connection.sendall(encode_bulk_string(value))
 
 
+        #--------------------RPUSH--------------------
         elif cmd == "RPUSH" and len(command_parts) > 2:
             key, values = command_parts[1], command_parts[2:]
             if key not in store:
@@ -165,6 +169,7 @@ def handle_client(connection):
             connection.sendall(encode_integer(new_length))
 
 
+        #--------------------LRANGE--------------------
         elif cmd == "LRANGE" and len(command_parts) == 4:
             key = command_parts[1]
             try:
@@ -205,6 +210,8 @@ def handle_client(connection):
             result = lst[start:stop + 1]
             connection.sendall(encode_array(result))
 
+        
+        #--------------------LPUSH--------------------
         elif cmd == "LPUSH" and len(command_parts) >= 3:
             key, values = command_parts[1], command_parts[2:]
             if key not in store:
@@ -228,6 +235,7 @@ def handle_client(connection):
             connection.sendall(encode_integer(new_length))
 
 
+        #--------------------LLEN--------------------
         elif cmd == "LLEN" and len(command_parts) == 2:
             key = command_parts[1]
 
@@ -246,6 +254,7 @@ def handle_client(connection):
             connection.sendall(encode_integer(len(lst)))
 
 
+        #--------------------LPOP--------------------
         elif cmd == "LPOP" and len(command_parts) >= 2:
             key = command_parts[1]
 
@@ -296,6 +305,7 @@ def handle_client(connection):
             connection.sendall(resp.encode())
 
 
+        #--------------------BLPOP--------------------
         elif cmd == "BLPOP" and len(command_parts) == 3:
             key = command_parts[1]
             timeout = float(command_parts[2])
@@ -325,6 +335,7 @@ def handle_client(connection):
                 connection.sendall(encode_array([key, value]))
 
 
+        #--------------------XADD--------------------
         elif cmd == "XADD" and len(command_parts) >= 5:
             key = command_parts[1]
             entry_id = command_parts[2]
@@ -342,7 +353,24 @@ def handle_client(connection):
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
 
-            # --- Case 1: Auto-generate sequence number (<ms>-*) ---
+            # --- Case 1: Auto-generate full ID (*) ---
+            if entry_id == "*":
+                # Current Unix time in milliseconds
+                ms = int(time.time() * 1000)
+                seq = 0
+
+            # If last entry has same ms → increment seq
+            if store[key]["value"]:
+                last_id = store[key]["value"][-1]["id"]
+                parsed_last = parse_stream_id(last_id)
+                if parsed_last is not None:
+                    last_ms, last_seq = parsed_last
+                    if last_ms == ms:
+                        seq = last_seq + 1
+
+            entry_id = f"{ms}-{seq}"
+
+            # --- Case 2: Auto-generate sequence number (<ms>-*) ---
             if entry_id.endswith("-*"):
                 ms_str = entry_id.split("-")[0]
                 try:
@@ -364,7 +392,7 @@ def handle_client(connection):
                             seq = last_seq + 1
                 # Build final entry ID
                 entry_id = f"{ms}-{seq}"
-            # --- Case 2: Explicit IDs (<ms>-<seq>) ---
+            # --- Case 3: Explicit IDs (<ms>-<seq>) ---
             else:
                 parsed = parse_stream_id(entry_id)
                 if parsed is None:
@@ -392,6 +420,7 @@ def handle_client(connection):
             connection.sendall(encode_bulk_string(entry_id))
 
 
+        #--------------------TYPE--------------------
         elif cmd == "TYPE" and len(command_parts) == 2:
             key = command_parts[1]
             if key not in store:
