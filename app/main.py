@@ -368,8 +368,6 @@ def handle_client(connection):
                     if last_ms == ms:
                         seq = last_seq + 1
 
-            entry_id = f"{ms}-{seq}"
-
             # --- Case 2: Auto-generate sequence number (<ms>-*) ---
             if entry_id.endswith("-*"):
                 ms_str = entry_id.split("-")[0]
@@ -390,8 +388,7 @@ def handle_client(connection):
                         last_ms, last_seq = parsed_last
                         if last_ms == ms:
                             seq = last_seq + 1
-                # Build final entry ID
-                entry_id = f"{ms}-{seq}"
+                
             # --- Case 3: Explicit IDs (<ms>-<seq>) ---
             else:
                 parsed = parse_stream_id(entry_id)
@@ -399,6 +396,9 @@ def handle_client(connection):
                     connection.sendall(b"-ERR Invalid stream ID format\r\n")
                     continue
                 ms, seq = parsed
+
+            # Build final entry ID (safe: ms and seq are guaranteed defined)
+            entry_id = f"{ms}-{seq}"
 
             # Validate ID
             last_id = store[key]["value"][-1]["id"] if store[key]["value"] else None
