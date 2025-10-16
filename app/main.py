@@ -359,17 +359,17 @@ def handle_client(connection):
                 ms = int(time.time() * 1000)
                 seq = 0
 
-            # If last entry has same ms → increment seq
-            if store[key]["value"]:
-                last_id = store[key]["value"][-1]["id"]
-                parsed_last = parse_stream_id(last_id)
-                if parsed_last is not None:
-                    last_ms, last_seq = parsed_last
-                    if last_ms == ms:
-                        seq = last_seq + 1
+                # If last entry has same ms → increment seq
+                if store[key]["value"]:
+                    last_id = store[key]["value"][-1]["id"]
+                    parsed_last = parse_stream_id(last_id)
+                    if parsed_last is not None:
+                        last_ms, last_seq = parsed_last
+                        if last_ms == ms:
+                            seq = last_seq + 1
 
             # --- Case 2: Auto-generate sequence number (<ms>-*) ---
-            if entry_id.endswith("-*"):
+            elif entry_id.endswith("-*"):
                 ms_str = entry_id.split("-")[0]
                 try:
                     ms = int(ms_str)
