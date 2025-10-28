@@ -353,7 +353,7 @@ def handle_client(connection):
                 connection.sendall(b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
                 continue
 
-            # --- Case 1: Auto-generate full ID (*) ---
+            #Case 1: Auto-generate full ID (*)
             if entry_id == "*":
                 # Current Unix time in milliseconds
                 ms = int(time.time() * 1000)
@@ -368,7 +368,7 @@ def handle_client(connection):
                         if last_ms == ms:
                             seq = last_seq + 1
 
-            # --- Case 2: Auto-generate sequence number (<ms>-*) ---
+            # Case 2: Auto-generate sequence number (<ms>-*)
             elif entry_id.endswith("-*"):
                 ms_str = entry_id.split("-")[0]
                 try:
@@ -389,7 +389,7 @@ def handle_client(connection):
                         if last_ms == ms:
                             seq = last_seq + 1
                 
-            # --- Case 3: Explicit IDs (<ms>-<seq>) ---
+            # Case 3: Explicit IDs (<ms>-<seq>)
             else:
                 parsed = parse_stream_id(entry_id)
                 if parsed is None:
@@ -418,6 +418,63 @@ def handle_client(connection):
 
             # Return entry ID
             connection.sendall(encode_bulk_string(entry_id))
+
+
+        #--------------------XRANGE--------------------
+        elif cmd == "XRANGE" and len(command_parts) == 4:
+            key = command_parts[1]
+            start_id = command_parts[2]
+            end_id = command_parts[3]
+
+            # 1. Check existence and type
+            if key not in store or store[key]["type"] != "stream":
+                connection.sendall(b"*0\r\n")  # empty array
+                continue
+
+            stream = store[key]["value"]
+
+            # 2. Parse IDs
+            start_parsed = parse_stream_id(start_id)
+            end_parsed = parse_stream_id(end_id)
+            if start_parsed is None or end_parsed is None:
+                connection.sendall(b"-ERR Invalid stream ID format\r\n")
+                continue
+
+            start_ms, start_seq = start_parsed
+            end_ms, end_seq = end_parsed
+
+            # 3. Collect matching entries
+            result_entries = []
+            for entry in stream:
+                parsed_entry = parse_stream_id(entry["id"])
+                if parsed_entry is None:
+                    continue  # skip corrupted entry
+                e_ms, e_seq = parsed_entry
+
+                # Filter entries within [start_id, end_id]
+                if (e_ms > end_ms) or (e_ms == end_ms and e_seq > end_seq):
+                    continue
+                if (e_ms < start_ms) or (e_ms == start_ms and e_seq < start_seq):
+                    continue
+
+                result_entries.append(entry)
+
+            # 4. Encode as RESP array
+            resp = f"*{len(result_entries)}\r\n".encode()
+            for entry in result_entries:
+                entry_id = entry["id"]
+                fields = entry["fields"]
+
+                # Encode one entry as [id, [field1, value1, field2, value2, ...]]
+                resp += f"*2\r\n${len(entry_id)}\r\n{entry_id}\r\n".encode()
+
+                # Encode fields as nested array
+                resp += f"*{len(fields) * 2}\r\n".encode()
+                for f, v in fields.items():
+                    resp += f"${len(f)}\r\n{f}\r\n".encode()
+                    resp += f"${len(v)}\r\n{v}\r\n".encode()
+
+            connection.sendall(resp)
 
 
         #--------------------TYPE--------------------
